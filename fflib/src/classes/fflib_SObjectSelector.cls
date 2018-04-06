@@ -31,9 +31,18 @@ public abstract with sharing class fflib_SObjectSelector
 	implements fflib_ISObjectSelector
 {
     /**
-     * This overrides the Multi Currency handling, preventing it from injecting the CurrencyIsoCode fie ld for certain System objects that don't ever support it
+     * Indicates whether the sObject has the currency ISO code field for organisations which have multi-currency
+     * enabled. 
      **/
-     private static Set<String> STANDARD_WITHOUT_CURRENCYISO = new Set<String> {'ApexClass', 'ApexTrigger', 'AsyncApexJob', 'Attachment', 'RecordType'};
+    private Boolean CURRENCY_ISO_CODE_ENABLED {
+        get {
+            if(CURRENCY_ISO_CODE_ENABLED == null){
+                CURRENCY_ISO_CODE_ENABLED = describeWrapper.getFieldsMap().keySet().contains('currencyisocode');
+            }
+            return CURRENCY_ISO_CODE_ENABLED;
+        }
+		set;
+    }
      
     /**
      * Should this selector automatically include the FieldSet fields when building queries?
@@ -180,12 +189,11 @@ public abstract with sharing class fflib_SObjectSelector
      *
      * @depricated See newQueryFactory
      **/
-    public fflib_StringBuilder.FieldListBuilder getFieldListBuilder()
+    public fflib_StringBuilder.CommaDelimitedListBuilder getFieldListBuilder()
     {
-        List<SObjectField> sObjectFields = new List<SObjectField>();
-        for(fflib_QueryFactory.QueryField queryField : newQueryFactory().getSelectedFields())
-            sObjectFields.add(queryField.getBaseField());
-        return new fflib_StringBuilder.FieldListBuilder(sObjectFields);
+        return 
+            new fflib_StringBuilder.CommaDelimitedListBuilder(
+                new List<String>(newQueryFactory().getSelectedFields()));
     }
 
     /**
@@ -219,7 +227,7 @@ public abstract with sharing class fflib_SObjectSelector
     {
         return getFieldListBuilder().getStringValue(relation + '.');
     }
-    
+
     /**
      * Returns the string representaiton of the SObject this selector represents
      **/
@@ -323,8 +331,7 @@ public abstract with sharing class fflib_SObjectSelector
 		for(SObjectField field : getSObjectFieldList())		
         	queryFactory.selectField(relationshipFieldPath + '.' + field.getDescribe().getName());
         // Automatically select the CurrencyIsoCode for MC orgs (unless the object is a known exception to the rule)
-        if(Userinfo.isMultiCurrencyOrganization() &&
-           !STANDARD_WITHOUT_CURRENCYISO.contains(getSObjectType().getDescribe().getName()))
+        if(Userinfo.isMultiCurrencyOrganization() && CURRENCY_ISO_CODE_ENABLED)
             queryFactory.selectField(relationshipFieldPath+'.CurrencyIsoCode');		
 	}
     
@@ -350,6 +357,23 @@ public abstract with sharing class fflib_SObjectSelector
     		includeSelectorFields);
     }
         
+	/**
+	 * Adds a subselect QueryFactory based on this selector to the given QueryFactor, returns the parentQueryFactory
+	 **/
+	public fflib_QueryFactory addQueryFactorySubselect(fflib_QueryFactory parentQueryFactory, String relationshipName)
+	{
+		return addQueryFactorySubselect(parentQueryFactory, relationshipName, TRUE);
+	}
+
+	/**
+	 * Adds a subselect QueryFactory based on this selector to the given QueryFactor
+	 **/
+	public fflib_QueryFactory addQueryFactorySubselect(fflib_QueryFactory parentQueryFactory, String relationshipName, Boolean includeSelectorFields)
+	{
+		fflib_QueryFactory subSelectQueryFactory = parentQueryFactory.subselectQuery(relationshipName);
+		return configureQueryFactory(subSelectQueryFactory, m_enforceCRUD, m_enforceFLS, includeSelectorFields);
+	}
+
     /**
      * Constructs the default SOQL query for this selector, see selectSObjectsById and queryLocatorById
      **/    
@@ -389,8 +413,7 @@ public abstract with sharing class fflib_SObjectSelector
 	                queryFactory.selectFieldSet(fieldSet);
 	
 	        // Automatically select the CurrencyIsoCode for MC orgs (unless the object is a known exception to the rule)
-	        if(Userinfo.isMultiCurrencyOrganization() &&
-	           !STANDARD_WITHOUT_CURRENCYISO.contains(getSObjectType().getDescribe().getName()))
+	        if(Userinfo.isMultiCurrencyOrganization() && CURRENCY_ISO_CODE_ENABLED)
 	            queryFactory.selectField('CurrencyIsoCode');
         }
         
